@@ -8,7 +8,7 @@ from auth import verify_password, create_access_token
 from models import Base, Ticket,User
 import requests
 import shutil
-from datetime import timedelta
+from datetime import timedelta, datetime
 import os
 from fastapi.middleware.cors import CORSMiddleware
 Base.metadata.create_all(bind=engine)
@@ -36,8 +36,8 @@ class TicketCreate(BaseModel):
     code: Optional[str]
     city: Optional[str]
     status: Optional[str]
-    entry_time: Optional[str]
-    exit_time: Optional[str]
+    entry_time: Optional[datetime]
+    exit_time: Optional[datetime]
     entry_pic_url: Optional[HttpUrl]
     car_pic_base64: str
     exit_video_url: Optional[HttpUrl]
@@ -50,8 +50,8 @@ class TicketOut(BaseModel):
     code: Optional[str] = None
     city: Optional[str] = None
     status: Optional[str] = None
-    entry_time: Optional[str] = None
-    exit_time: Optional[str] = None
+    entry_time: Optional[datetime] = None
+    exit_time: Optional[datetime] = None
     entry_pic_path: Optional[str] = None
     car_pic: Optional[str] = None
     exit_video_path: Optional[str] = None
