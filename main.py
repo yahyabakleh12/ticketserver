@@ -8,6 +8,7 @@ from auth import verify_password, create_access_token
 from models import Base, Ticket,User
 import requests
 import shutil
+from datetime import timedelta
 import os
 
 Base.metadata.create_all(bind=engine)
