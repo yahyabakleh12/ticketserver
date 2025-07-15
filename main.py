@@ -10,7 +10,7 @@ import requests
 import shutil
 from datetime import timedelta
 import os
-
+from fastapi.middleware.cors import CORSMiddleware
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 cors_env = os.environ.get("CORS_ORIGINS")
@@ -21,7 +21,13 @@ else:
         "http://localhost:5173",
        
     ]
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # or ["http://localhost:5173"] for tighter control
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 # Pydantic schema
 class TicketCreate(BaseModel):
     token: str
