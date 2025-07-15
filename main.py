@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, HttpUrl
-from typing import Optional
+from typing import Optional, List
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine
 from auth import verify_password, create_access_token
@@ -42,6 +42,23 @@ class TicketCreate(BaseModel):
     car_pic_base64: str
     exit_video_url: Optional[HttpUrl]
 
+class TicketOut(BaseModel):
+    id: int
+    token: str
+    access_point_id: Optional[int] = None
+    number: Optional[str] = None
+    code: Optional[str] = None
+    city: Optional[str] = None
+    status: Optional[str] = None
+    entry_time: Optional[str] = None
+    exit_time: Optional[str] = None
+    entry_pic_path: Optional[str] = None
+    car_pic: Optional[str] = None
+    exit_video_path: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
 # Dependency to get db session
 def get_db():
     db = SessionLocal()
@@ -58,6 +75,12 @@ def download_file(url: str, folder: str) -> str:
         with open(local_filename, 'wb') as f:
             shutil.copyfileobj(r.raw, f)
     return local_filename
+
+
+@app.get("/tickets/", response_model=List[TicketOut])
+def get_tickets(db: Session = Depends(get_db)):
+    tickets = db.query(Ticket).all()
+    return tickets
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == form_data.username).first()
