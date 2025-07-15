@@ -89,7 +89,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     access_token = create_access_token(data={"sub": user.username}, expires_delta=timedelta(minutes=60))
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.post("/tickets/")
+@app.post("/ticket")
 def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
     entry_pic_path = None
     exit_video_path = None
@@ -97,14 +97,14 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
     # Download entry image
     if ticket.entry_pic_url:
         try:
-            entry_pic_path = download_file(ticket.entry_pic_url, "entry_images")
+            entry_pic_path = download_file(str(ticket.entry_pic_url), "entry_images")
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Error downloading entry_pic: {e}")
 
     # Download exit video
     if ticket.exit_video_url:
         try:
-            exit_video_path = download_file(ticket.exit_video_url, "exit_videos")
+            exit_video_path = download_file(str(ticket.exit_video_url), "exit_videos")
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Error downloading exit_video: {e}")
 

@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, Text
+from datetime import datetime
 from database import Base
 
 class Ticket(Base):
@@ -11,8 +12,8 @@ class Ticket(Base):
     code = Column(String(50))
     city = Column(String(100))
     status = Column(String(50))
-    entry_time = Column(DateTime)
-    exit_time = Column(DateTime)
+    entry_time= Column(DateTime,   nullable=False)
+    exit_time= Column(DateTime,   nullable=True)
     entry_pic_path = Column(String(255))
     car_pic = Column(Text)  # base64
     exit_video_path = Column(String(255))
