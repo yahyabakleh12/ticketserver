@@ -17,6 +17,9 @@ class Ticket(Base):
     entry_pic_path = Column(String(255))
     car_pic = Column(Text)  # base64
     exit_video_path = Column(String(255))
+    spot_number = Column(Integer)
+    trip_p_id = Column(Integer)
+    ticket_key_id = Column(Integer)
 class User(Base):
     __tablename__ = "User"
     id = Column(Integer, primary_key=True, index=True)
