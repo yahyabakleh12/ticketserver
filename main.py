@@ -128,3 +128,10 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_ticket)
     return {"id": db_ticket.id, "message": "Ticket created successfully"}
+
+@app.get("/ticket/{token}", response_model=TicketOut)
+def view_ticket(token: str, db: Session = Depends(get_db)):
+    ticket = db.query(Ticket).filter(Ticket.token == token).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return ticket
