@@ -36,6 +36,9 @@ class TicketCreate(BaseModel):
     code: Optional[str]
     city: Optional[str]
     status: Optional[str]
+    spot_number: Optional[int]
+    trip_p_id: Optional[int]
+    ticket_key_id: Optional[int]
     entry_time: Optional[datetime]
     exit_time: Optional[datetime]
     entry_pic_url: Optional[HttpUrl]
@@ -50,6 +53,9 @@ class TicketOut(BaseModel):
     code: Optional[str] = None
     city: Optional[str] = None
     status: Optional[str] = None
+    spot_number: Optional[int] = None
+    trip_p_id: Optional[int] = None
+    ticket_key_id: Optional[int] = None
     entry_time: Optional[datetime] = None
     exit_time: Optional[datetime] = None
     entry_pic_path: Optional[str] = None
@@ -115,6 +121,9 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
         code=ticket.code,
         city=ticket.city,
         status=ticket.status,
+        spot_number=ticket.spot_number,
+        trip_p_id=ticket.trip_p_id,
+        ticket_key_id=ticket.ticket_key_id,
         entry_time=ticket.entry_time or datetime.utcnow(),
         exit_time=ticket.exit_time,
         entry_pic_path=entry_pic_path,

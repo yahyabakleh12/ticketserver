@@ -16,5 +16,8 @@ CREATE TABLE Ticket (
     exit_time DATETIME,
     entry_pic_path VARCHAR(255),
     car_pic LONGTEXT, -- to store base64 image
-    exit_video_path VARCHAR(255)
+    exit_video_path VARCHAR(255),
+    spot_number INT,
+    trip_p_id INT,
+    ticket_key_id INT
 );
