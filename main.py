@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends,FastAPI, UploadFile, File
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, HttpUrl
 from typing import Optional, List
@@ -11,6 +11,10 @@ import shutil
 from datetime import datetime, timedelta
 import os
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+import os
+import uuid
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 cors_env = os.environ.get("CORS_ORIGINS")
@@ -28,6 +32,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+UPLOAD_FOLDER ="exit_videos/"
 # Pydantic schema
 class TicketCreate(BaseModel):
     token: str
@@ -41,9 +46,9 @@ class TicketCreate(BaseModel):
     ticket_key_id: Optional[int]
     entry_time: Optional[datetime]
     exit_time: Optional[datetime]
-    entry_pic_url: Optional[HttpUrl]
+    entry_pic_base64: Optional[str]
     car_pic_base64: str
-    exit_video_url: Optional[HttpUrl]
+    exit_video_path: Optional[str]
 
 class TicketOut(BaseModel):
     id: int
@@ -58,7 +63,7 @@ class TicketOut(BaseModel):
     ticket_key_id: Optional[int] = None
     entry_time: Optional[datetime] = None
     exit_time: Optional[datetime] = None
-    entry_pic_path: Optional[str] = None
+    entry_pic_base64: Optional[str] = None
     car_pic: Optional[str] = None
     exit_video_path: Optional[str] = None
 
@@ -97,22 +102,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 @app.post("/ticket")
 def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
-    entry_pic_path = None
-    exit_video_path = None
-
-    # Download entry image
-    if ticket.entry_pic_url:
-        try:
-            entry_pic_path = download_file(str(ticket.entry_pic_url), "entry_images")
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Error downloading entry_pic: {e}")
-
-    # Download exit video
-    if ticket.exit_video_url:
-        try:
-            exit_video_path = download_file(str(ticket.exit_video_url), "exit_videos")
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Error downloading exit_video: {e}")
+    
 
     db_ticket = Ticket(
         token=ticket.token,
@@ -122,13 +112,12 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
         city=ticket.city,
         status=ticket.status,
         spot_number=ticket.spot_number,
-        trip_p_id=ticket.trip_p_id,
         ticket_key_id=ticket.ticket_key_id,
         entry_time=ticket.entry_time or datetime.utcnow(),
         exit_time=ticket.exit_time,
-        entry_pic_path=entry_pic_path,
+        entry_pic_base64=ticket.entry_pic_base64,
         car_pic=ticket.car_pic_base64,
-        exit_video_path=exit_video_path
+        exit_video_path=ticket.exit_video_path,
     )
 
 
@@ -138,9 +127,22 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
     db.refresh(db_ticket)
     return {"id": db_ticket.id, "message": "Ticket created successfully"}
 
-@app.get("/ticket/{token}", response_model=TicketOut)
-def view_ticket(token: str, db: Session = Depends(get_db)):
-    ticket = db.query(Ticket).filter(Ticket.token == token).first()
+@app.get("/ticket/{id}", response_model=TicketOut)
+def view_ticket(id: int, db: Session = Depends(get_db)):
+    ticket = db.query(Ticket).filter(Ticket.id == id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return ticket
+@app.post("/upload-video")
+async def upload_video(file: UploadFile = File(...)):
+    file_extension = os.path.splitext(file.filename)[1]
+    unique_filename = f"{uuid.uuid4()}{file_extension}"
+    file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
+
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+    return JSONResponse(content={
+        "message": "Video uploaded successfully",
+        "file_name": unique_filename
+    })

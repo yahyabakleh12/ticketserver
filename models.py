@@ -14,7 +14,7 @@ class Ticket(Base):
     status = Column(String(50))
     entry_time= Column(DateTime,   nullable=False)
     exit_time= Column(DateTime,   nullable=True)
-    entry_pic_path = Column(String(255))
+    entry_pic_base64 = Column(String(255))
     car_pic = Column(Text)  # base64
     exit_video_path = Column(String(255))
     spot_number = Column(Integer)

@@ -14,7 +14,7 @@ CREATE TABLE Ticket (
     status VARCHAR(50),
     entry_time DATETIME,
     exit_time DATETIME,
-    entry_pic_path VARCHAR(255),
+    entry_pic_base64 LONGTEXT,
     car_pic LONGTEXT, -- to store base64 image
     exit_video_path VARCHAR(255),
     spot_number INT,
