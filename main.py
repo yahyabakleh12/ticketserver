@@ -1,11 +1,11 @@
-from fastapi import FastAPI, HTTPException, Depends,FastAPI, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine
 from auth import verify_password, create_access_token
-from models import Base, Ticket,User
+from models import Base, Ticket, User
 import requests
 import shutil
 from datetime import datetime, timedelta
@@ -13,8 +13,8 @@ import os
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-import os
 import uuid
+from parking_api import park_in_request, park_out_request
 from fastapi.responses import FileResponse
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
@@ -147,6 +147,48 @@ async def upload_video(file: UploadFile = File(...)):
         "message": "Video uploaded successfully",
         "file_name": unique_filename
     })
+
+
+@app.post("/submit/{ticket_id}")
+def submit_ticket(ticket_id: int, db: Session = Depends(get_db)):
+    """Submit a ticket by calling park-in then park-out APIs."""
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    parkin_resp = park_in_request(
+        token=ticket.token,
+        parkin_time=(ticket.entry_time or datetime.utcnow()).isoformat(),
+        plate_code=ticket.code or "",
+        plate_number=ticket.number or "",
+        emirates=ticket.city or "",
+        conf=str(ticket.ticket_key_id or ""),
+        spot_number=ticket.spot_number or 0,
+        pole_id=ticket.access_point_id or 0,
+        images=[ticket.entry_pic_base64] if ticket.entry_pic_base64 else [],
+    )
+
+    trip_id = None
+    if isinstance(parkin_resp, dict):
+        trip_id = parkin_resp.get("trip_id") or parkin_resp.get("data", {}).get("trip_id")
+    if not trip_id:
+        raise HTTPException(status_code=400, detail="Failed to obtain trip id")
+
+    ticket.trip_p_id = trip_id
+    ticket.status = "submitted"
+    db.commit()
+    db.refresh(ticket)
+
+    parkout_resp = park_out_request(
+        token=ticket.token,
+        parkout_time=(ticket.exit_time or datetime.utcnow()).isoformat(),
+        spot_number=ticket.spot_number or 0,
+        pole_id=ticket.access_point_id or 0,
+        trip_id=trip_id,
+    )
+
+    return {"park_in": parkin_resp, "park_out": parkout_resp, "ticket_id": ticket.id}
+
 @app.get("/videos/{video_name}")
 def get_exit_video(video_name: str):
     # 1. Look up the ticket in the database
