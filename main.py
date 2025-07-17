@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Optional, List
@@ -90,8 +90,14 @@ def download_file(url: str, folder: str) -> str:
 
 
 @app.get("/tickets/", response_model=List[TicketOut])
-def get_tickets(db: Session = Depends(get_db)):
-    tickets = db.query(Ticket).all()
+def get_tickets(
+    status: Optional[List[str]] = Query(None, max_items=3),
+    db: Session = Depends(get_db),
+):
+    query = db.query(Ticket)
+    if status:
+        query = query.filter(Ticket.status.in_(status))
+    tickets = query.all()
     return tickets
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -133,6 +139,17 @@ def view_ticket(id: int, db: Session = Depends(get_db)):
     ticket = db.query(Ticket).filter(Ticket.id == id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    return ticket
+
+
+@app.patch("/ticket/{id}/cancel", response_model=TicketOut)
+def cancel_ticket(id: int, db: Session = Depends(get_db)):
+    ticket = db.query(Ticket).filter(Ticket.id == id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket.status = "cancelled"
+    db.commit()
+    db.refresh(ticket)
     return ticket
 @app.post("/upload-video")
 async def upload_video(file: UploadFile = File(...)):
