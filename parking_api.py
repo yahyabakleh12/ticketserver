@@ -4,7 +4,8 @@ import time
 import requests
 from typing import List, Any, Dict
 
-PARKONIC_BASE_URL = os.environ.get("PARKONIC_BASE_URL", "")
+PARKONIC_BASE_URL = "https://api.parkonic.com/api/street-parking/v2"
+
 
 
 def send_request_with_retry(url: str, payload: Dict[str, Any], retries: int = 3, delay: float = 1.0) -> Dict[str, Any] | str:

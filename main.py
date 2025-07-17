@@ -165,7 +165,7 @@ def submit_ticket(ticket_id: int, db: Session = Depends(get_db)):
         conf=str(ticket.ticket_key_id or ""),
         spot_number=ticket.spot_number or 0,
         pole_id=ticket.access_point_id or 0,
-        images=[ticket.entry_pic_base64] if ticket.entry_pic_base64 else [],
+        images=[ticket.car_pic,ticket.entry_pic_base64] if ticket.entry_pic_base64 else [ticket.car_pic],
     )
 
     trip_id = None
