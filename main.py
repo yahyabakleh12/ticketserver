@@ -90,14 +90,8 @@ def download_file(url: str, folder: str) -> str:
 
 
 @app.get("/tickets/", response_model=List[TicketOut])
-def get_tickets(
-    status: Optional[List[str]] = Query(None, max_items=3),
-    db: Session = Depends(get_db),
-):
-    query = db.query(Ticket)
-    if status:
-        query = query.filter(Ticket.status.in_(status))
-    tickets = query.all()
+def get_tickets(db: Session = Depends(get_db)):
+    tickets = db.query(Ticket).all()
     return tickets
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
