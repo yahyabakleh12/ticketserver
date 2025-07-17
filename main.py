@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import uuid
+from fastapi.responses import FileResponse
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 cors_env = os.environ.get("CORS_ORIGINS")
@@ -146,3 +147,18 @@ async def upload_video(file: UploadFile = File(...)):
         "message": "Video uploaded successfully",
         "file_name": unique_filename
     })
+@app.get("/videos/{video_name}")
+def get_exit_video(video_name: str):
+    # 1. Look up the ticket in the database
+    
+    exit_video_path = os.path.join(UPLOAD_FOLDER,video_name)
+    # print(os.path.isfile(exit_video_path))
+    if os.path.isfile(exit_video_path):
+        # 2. Return the file on disk
+        return FileResponse(
+            path=exit_video_path,
+            media_type="video/mp4",            # adjust if your videos are a different format
+            filename=video_name  # suggested download name
+        )
+    else:
+        raise HTTPException(status_code=404, detail="Video not found")
