@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Optional, List
@@ -10,15 +10,19 @@ import requests
 import shutil
 from datetime import datetime, timedelta
 import os
+import base64
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uuid
 from parking_api import park_in_request, park_out_request
 from fastapi.responses import FileResponse
+import shutil
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 cors_env = os.environ.get("CORS_ORIGINS")
+ENTRY_IMAGE_DIR = "entry_images/"
+CAR_IMAGE_DIR = "car_images/"
 if cors_env:
     origins = [o.strip() for o in cors_env.split(",")]
 else:
@@ -79,6 +83,24 @@ def get_db():
     finally:
         db.close()
 
+def save_base64_jpg(b64_string: str, output_path: str):
+    """
+    Decode a base64‐encoded JPEG and save it to disk.
+
+    :param b64_string: The JPEG data as a base64 string.
+                        It may include a data URI prefix like "data:image/jpeg;base64,..."
+    :param output_path: Path to write the decoded JPG, e.g. "snapshot.jpg"
+    """
+    # If the string has a data URI prefix, strip it out:
+    if b64_string.startswith("data:image"):
+        b64_string = b64_string.split(",", 1)[1]
+
+    # Decode and write to a file
+    img_data = base64.b64decode(b64_string)
+    with open(output_path, "wb") as f:
+        f.write(img_data)
+    return output_path 
+
 def download_file(url: str, folder: str) -> str:
     os.makedirs(folder, exist_ok=True)
     local_filename = os.path.join(folder, url.split("/")[-1])
@@ -103,8 +125,12 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 @app.post("/ticket")
 def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
-    
-
+    filename_in = f"{uuid.uuid4()}.jpg"
+    filename_car = f"{uuid.uuid4()}.jpg"
+    full_path_in = os.path.join(ENTRY_IMAGE_DIR, filename_in)
+    full_path_car = os.path.join(CAR_IMAGE_DIR, filename_car)
+    in_image= save_base64_jpg(ticket.entry_pic_base64,full_path_in)
+    car_im = save_base64_jpg(ticket.car_pic_base64,full_path_car)
     db_ticket = Ticket(
         token=ticket.token,
         access_point_id=ticket.access_point_id,
@@ -116,8 +142,8 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
         ticket_key_id=ticket.ticket_key_id,
         entry_time=ticket.entry_time or datetime.utcnow(),
         exit_time=ticket.exit_time,
-        entry_pic_base64=ticket.entry_pic_base64,
-        car_pic=ticket.car_pic_base64,
+        entry_pic_base64=in_image,
+        car_pic=car_im,
         exit_video_path=ticket.exit_video_path,
     )
 
@@ -133,17 +159,6 @@ def view_ticket(id: int, db: Session = Depends(get_db)):
     ticket = db.query(Ticket).filter(Ticket.id == id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return ticket
-
-
-@app.patch("/ticket/{id}/cancel", response_model=TicketOut)
-def cancel_ticket(id: int, db: Session = Depends(get_db)):
-    ticket = db.query(Ticket).filter(Ticket.id == id).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    ticket.status = "cancelled"
-    db.commit()
-    db.refresh(ticket)
     return ticket
 @app.post("/upload-video")
 async def upload_video(file: UploadFile = File(...)):
@@ -166,7 +181,14 @@ def submit_ticket(ticket_id: int, db: Session = Depends(get_db)):
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-
+    car_bs64= ""
+    in_bs64=""
+    with open(ticket.car_pic, "rb") as f:
+                car_bytes = f.read()
+    car_bs64 = base64.b64encode(car_bytes).decode("utf-8")
+    with open(ticket.entry_pic_base64, "rb") as d:
+                in_bytes = d.read()
+    in_bs64 = base64.b64encode(in_bytes).decode("utf-8")
     parkin_resp = park_in_request(
         token=ticket.token,
         parkin_time=(ticket.entry_time or datetime.utcnow()).isoformat(),
@@ -176,7 +198,7 @@ def submit_ticket(ticket_id: int, db: Session = Depends(get_db)):
         conf=str(ticket.ticket_key_id or ""),
         spot_number=ticket.spot_number or 0,
         pole_id=ticket.access_point_id or 0,
-        images=[ticket.car_pic,ticket.entry_pic_base64] if ticket.entry_pic_base64 else [ticket.car_pic],
+        images=[car_bs64,in_bs64],
     )
 
     trip_id = None
@@ -199,6 +221,42 @@ def submit_ticket(ticket_id: int, db: Session = Depends(get_db)):
     )
 
     return {"park_in": parkin_resp, "park_out": parkout_resp, "ticket_id": ticket.id}
+# @app.get("/fix")
+# def fix_db(db: Session = Depends(get_db)):
+#     tickets = db.query(Ticket).filter(Ticket.token == 'buOs11IDXwseQCb3bLvAxNv0Gx4HLC21Um').all()
+#     for ticket in tickets:
+#         filename_in = f"{uuid.uuid4()}.jpg"
+#         filename_car = f"{uuid.uuid4()}.jpg"
+#         full_path_in = os.path.join(ENTRY_IMAGE_DIR, filename_in)
+#         full_path_car = os.path.join(CAR_IMAGE_DIR, filename_car)
+#         ticket_d = db.query(Ticket).filter(Ticket.id == ticket.id).first()
+#         if not ticket:
+#             continue
+#         src_car = ticket.car_pic
+#         src_in = ticket.entry_pic_base64
+
+#         # destination path (including filename)
+#         dst_car = full_path_car
+#         dst_in = full_path_in
+#         # this will move (and rename if needed) the file
+#         shutil.move(src_car, dst_in)
+#         shutil.move(src_in, dst_car)
+#         ticket_d.entry_pic_base64 = full_path_in
+#         ticket_d.car_pic = full_path_car
+#         db.commit()
+#         db.refresh(ticket)
+#         print("Done")
+#     print("all images are cleare")
+
+@app.post("/ticket/{id}/cancel", response_model=TicketOut)
+def cancel_ticket(id: int, db: Session = Depends(get_db)):
+    ticket = db.query(Ticket).filter(Ticket.id == id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket.status = "cancelled"
+    db.commit()
+    db.refresh(ticket)
+    return ticket
 
 @app.get("/videos/{video_name}")
 def get_exit_video(video_name: str):
@@ -214,4 +272,33 @@ def get_exit_video(video_name: str):
             filename=video_name  # suggested download name
         )
     else:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+@app.get("/image-car/{id}")
+def get_image(id: str,db: Session = Depends(get_db)):
+    # 1. Look up the ticket in the database
+    ticket = db.query(Ticket).filter(Ticket.id == id).first()
+    if os.path.isfile(ticket.car_pic):
+        # 2. Return the file on disk
+        return FileResponse(
+            path=ticket.car_pic,
+            media_type="image/jpg",            # adjust if your videos are a different format
+            filename=ticket.car_pic  # suggested download name
+        )
+    else:
+    
+        raise HTTPException(status_code=404, detail="Video not found")
+@app.get("/image-in/{id}")
+def get_image(id: str,db: Session = Depends(get_db)):
+    # 1. Look up the ticket in the database
+    ticket = db.query(Ticket).filter(Ticket.id == id).first()
+    if os.path.isfile(ticket.entry_pic_base64):
+        # 2. Return the file on disk
+        return FileResponse(
+            path=ticket.entry_pic_base64,
+            media_type="image/jpg",            # adjust if your videos are a different format
+            filename=ticket.entry_pic_base64  # suggested download name
+        )
+    else:
+    
         raise HTTPException(status_code=404, detail="Video not found")
