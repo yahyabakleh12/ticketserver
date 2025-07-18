@@ -5,7 +5,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 from database import SessionLocal, engine
 from auth import verify_password, create_access_token
-from models import Base, Ticket, User
+from models import Base, Ticket, SubmittedTicket, CancelledTicket, User
 import requests
 import shutil
 from datetime import datetime, timedelta
@@ -220,7 +220,28 @@ def submit_ticket(ticket_id: int, db: Session = Depends(get_db)):
         trip_id=trip_id,
     )
 
-    return {"park_in": parkin_resp, "park_out": parkout_resp, "ticket_id": ticket.id}
+    submitted = SubmittedTicket(
+        token=ticket.token,
+        access_point_id=ticket.access_point_id,
+        number=ticket.number,
+        code=ticket.code,
+        city=ticket.city,
+        status="submitted",
+        entry_time=ticket.entry_time,
+        exit_time=ticket.exit_time,
+        entry_pic_base64=ticket.entry_pic_base64,
+        car_pic=ticket.car_pic,
+        exit_video_path=ticket.exit_video_path,
+        spot_number=ticket.spot_number,
+        trip_p_id=ticket.trip_p_id,
+        ticket_key_id=ticket.ticket_key_id,
+    )
+    db.add(submitted)
+    db.delete(ticket)
+    db.commit()
+    db.refresh(submitted)
+
+    return {"park_in": parkin_resp, "park_out": parkout_resp, "ticket_id": submitted.id}
 # @app.get("/fix")
 # def fix_db(db: Session = Depends(get_db)):
 #     tickets = db.query(Ticket).filter(Ticket.token == 'buOs11IDXwseQCb3bLvAxNv0Gx4HLC21Um').all()
@@ -253,10 +274,27 @@ def cancel_ticket(id: int, db: Session = Depends(get_db)):
     ticket = db.query(Ticket).filter(Ticket.id == id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    ticket.status = "cancelled"
+    cancelled = CancelledTicket(
+        token=ticket.token,
+        access_point_id=ticket.access_point_id,
+        number=ticket.number,
+        code=ticket.code,
+        city=ticket.city,
+        status="cancelled",
+        entry_time=ticket.entry_time,
+        exit_time=ticket.exit_time,
+        entry_pic_base64=ticket.entry_pic_base64,
+        car_pic=ticket.car_pic,
+        exit_video_path=ticket.exit_video_path,
+        spot_number=ticket.spot_number,
+        trip_p_id=ticket.trip_p_id,
+        ticket_key_id=ticket.ticket_key_id,
+    )
+    db.add(cancelled)
+    db.delete(ticket)
     db.commit()
-    db.refresh(ticket)
-    return ticket
+    db.refresh(cancelled)
+    return cancelled
 
 @app.get("/videos/{video_name}")
 def get_exit_video(video_name: str):
