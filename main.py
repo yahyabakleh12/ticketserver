@@ -169,6 +169,19 @@ def view_ticket(id: int, db: Session = Depends(get_db)):
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return ticket
+
+@app.get("/ticket/{id}/next", response_model=TicketOut)
+def get_next_ticket(id: int, db: Session = Depends(get_db)):
+    """Return the next ticket with an id greater than the provided id."""
+    ticket = (
+        db.query(Ticket)
+        .filter(Ticket.id > id)
+        .order_by(Ticket.id)
+        .first()
+    )
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return ticket
 @app.post("/upload-video")
 async def upload_video(file: UploadFile = File(...)):
     file_extension = os.path.splitext(file.filename)[1]
@@ -186,10 +199,10 @@ async def upload_video(file: UploadFile = File(...)):
 
 @app.post("/submit/{ticket_id}")
 def submit_t(ticket_id: int):
-    t1 =threading.Thread(target=submit_ticket,args=(ticket_id,))
-    t1.start()
-    t1.join()
-    return {"status": 200}
+    """Start ticket submission in a background thread."""
+    thread = threading.Thread(target=submit_ticket, args=(ticket_id,))
+    thread.start()
+    return {"status": "submission started"}
 
 def submit_ticket(ticket_id: int):
     """Submit a ticket by calling park-in then park-out APIs."""
