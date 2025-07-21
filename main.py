@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from database import SessionLocal, engine
 from auth import verify_password, create_access_token
 from models import Base, Ticket, SubmittedTicket, CancelledTicket, User
@@ -18,6 +19,8 @@ import uuid
 from parking_api import park_in_request, park_out_request
 from fastapi.responses import FileResponse
 import shutil
+import threading
+from database import SessionLocal
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 cors_env = os.environ.get("CORS_ORIGINS")
@@ -115,6 +118,12 @@ def download_file(url: str, folder: str) -> str:
 def get_tickets(db: Session = Depends(get_db)):
     tickets = db.query(Ticket).all()
     return tickets
+@app.get("/tickets/next-id")
+def get_next_ticket_id(db: Session = Depends(get_db)):
+    """Return the next available ticket id."""
+    max_id = db.query(func.max(Ticket.id)).scalar()
+    next_id = (max_id or 0) + 1
+    return {"next_id": next_id}
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == form_data.username).first()
@@ -176,8 +185,15 @@ async def upload_video(file: UploadFile = File(...)):
 
 
 @app.post("/submit/{ticket_id}")
-def submit_ticket(ticket_id: int, db: Session = Depends(get_db)):
+def submit_t(ticket_id: int):
+    t1 =threading.Thread(target=submit_ticket,args=(ticket_id,))
+    t1.start()
+    t1.join()
+    return {"status": 200}
+
+def submit_ticket(ticket_id: int):
     """Submit a ticket by calling park-in then park-out APIs."""
+    db = SessionLocal()
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -189,6 +205,7 @@ def submit_ticket(ticket_id: int, db: Session = Depends(get_db)):
     with open(ticket.entry_pic_base64, "rb") as d:
                 in_bytes = d.read()
     in_bs64 = base64.b64encode(in_bytes).decode("utf-8")
+    print(ticket.token)
     parkin_resp = park_in_request(
         token=ticket.token,
         parkin_time=(ticket.entry_time or datetime.utcnow()).isoformat(),
@@ -200,6 +217,7 @@ def submit_ticket(ticket_id: int, db: Session = Depends(get_db)):
         pole_id=ticket.access_point_id or 0,
         images=[car_bs64,in_bs64],
     )
+    print(parkin_resp)
 
     trip_id = None
     if isinstance(parkin_resp, dict):
