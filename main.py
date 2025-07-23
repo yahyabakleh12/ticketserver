@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Optional, List
@@ -19,8 +19,6 @@ import uuid
 from parking_api import park_in_request, park_out_request
 from fastapi.responses import FileResponse
 import shutil
-import threading
-from database import SessionLocal
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 cors_env = os.environ.get("CORS_ORIGINS")
@@ -198,81 +196,84 @@ async def upload_video(file: UploadFile = File(...)):
 
 
 @app.post("/submit/{ticket_id}")
-def submit_t(ticket_id: int):
-    """Start ticket submission in a background thread."""
-    thread = threading.Thread(target=submit_ticket, args=(ticket_id,))
-    thread.start()
-    return {"status": "submission started"}
+def submit_t(ticket_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """Schedule ticket submission in the background."""
+    background_tasks.add_task(submit_ticket, ticket_id, db)
+    return {"status": "submission scheduled"}
 
-def submit_ticket(ticket_id: int):
+def submit_ticket(ticket_id: int, db: Session):
     """Submit a ticket by calling park-in then park-out APIs."""
-    db = SessionLocal()
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    car_bs64= ""
-    in_bs64=""
-    with open(ticket.car_pic, "rb") as f:
-                car_bytes = f.read()
-    car_bs64 = base64.b64encode(car_bytes).decode("utf-8")
-    with open(ticket.entry_pic_base64, "rb") as d:
-                in_bytes = d.read()
-    in_bs64 = base64.b64encode(in_bytes).decode("utf-8")
-    print(ticket.token)
-    parkin_resp = park_in_request(
-        token=ticket.token,
-        parkin_time=(ticket.entry_time or datetime.utcnow()).isoformat(),
-        plate_code=ticket.code or "",
-        plate_number=ticket.number or "",
-        emirates=ticket.city or "",
-        conf=str(ticket.ticket_key_id or ""),
-        spot_number=ticket.spot_number or 0,
-        pole_id=ticket.access_point_id or 0,
-        images=[car_bs64,in_bs64],
-    )
-    print(parkin_resp)
+    try:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
 
-    trip_id = None
-    if isinstance(parkin_resp, dict):
-        trip_id = parkin_resp.get("trip_id") or parkin_resp.get("data", {}).get("trip_id")
-    if not trip_id:
-        raise HTTPException(status_code=400, detail="Failed to obtain trip id")
+        car_bs64 = ""
+        in_bs64 = ""
+        with open(ticket.car_pic, "rb") as f:
+            car_bytes = f.read()
+        car_bs64 = base64.b64encode(car_bytes).decode("utf-8")
+        with open(ticket.entry_pic_base64, "rb") as d:
+            in_bytes = d.read()
+        in_bs64 = base64.b64encode(in_bytes).decode("utf-8")
+        print(ticket.token)
 
-    ticket.trip_p_id = trip_id
-    ticket.status = "submitted"
-    db.commit()
-    db.refresh(ticket)
+        parkin_resp = park_in_request(
+            token=ticket.token,
+            parkin_time=(ticket.entry_time or datetime.utcnow()).isoformat(),
+            plate_code=ticket.code or "",
+            plate_number=ticket.number or "",
+            emirates=ticket.city or "",
+            conf=str(ticket.ticket_key_id or ""),
+            spot_number=ticket.spot_number or 0,
+            pole_id=ticket.access_point_id or 0,
+            images=[car_bs64, in_bs64],
+        )
+        print(parkin_resp)
 
-    parkout_resp = park_out_request(
-        token=ticket.token,
-        parkout_time=(ticket.exit_time or datetime.utcnow()).isoformat(),
-        spot_number=ticket.spot_number or 0,
-        pole_id=ticket.access_point_id or 0,
-        trip_id=trip_id,
-    )
+        trip_id = None
+        if isinstance(parkin_resp, dict):
+            trip_id = parkin_resp.get("trip_id") or parkin_resp.get("data", {}).get("trip_id")
+        if not trip_id:
+            raise HTTPException(status_code=400, detail="Failed to obtain trip id")
 
-    submitted = SubmittedTicket(
-        token=ticket.token,
-        access_point_id=ticket.access_point_id,
-        number=ticket.number,
-        code=ticket.code,
-        city=ticket.city,
-        status="submitted",
-        entry_time=ticket.entry_time,
-        exit_time=ticket.exit_time,
-        entry_pic_base64=ticket.entry_pic_base64,
-        car_pic=ticket.car_pic,
-        exit_video_path=ticket.exit_video_path,
-        spot_number=ticket.spot_number,
-        trip_p_id=ticket.trip_p_id,
-        ticket_key_id=ticket.ticket_key_id,
-    )
-    db.add(submitted)
-    db.delete(ticket)
-    db.commit()
-    db.refresh(submitted)
+        ticket.trip_p_id = trip_id
+        ticket.status = "submitted"
+        db.commit()
+        db.refresh(ticket)
 
-    return {"park_in": parkin_resp, "park_out": parkout_resp, "ticket_id": submitted.id}
+        parkout_resp = park_out_request(
+            token=ticket.token,
+            parkout_time=(ticket.exit_time or datetime.utcnow()).isoformat(),
+            spot_number=ticket.spot_number or 0,
+            pole_id=ticket.access_point_id or 0,
+            trip_id=trip_id,
+        )
+
+        submitted = SubmittedTicket(
+            token=ticket.token,
+            access_point_id=ticket.access_point_id,
+            number=ticket.number,
+            code=ticket.code,
+            city=ticket.city,
+            status="submitted",
+            entry_time=ticket.entry_time,
+            exit_time=ticket.exit_time,
+            entry_pic_base64=ticket.entry_pic_base64,
+            car_pic=ticket.car_pic,
+            exit_video_path=ticket.exit_video_path,
+            spot_number=ticket.spot_number,
+            trip_p_id=ticket.trip_p_id,
+            ticket_key_id=ticket.ticket_key_id,
+        )
+        db.add(submitted)
+        db.delete(ticket)
+        db.commit()
+        db.refresh(submitted)
+
+        return {"park_in": parkin_resp, "park_out": parkout_resp, "ticket_id": submitted.id}
+    finally:
+        db.close()
 # @app.get("/fix")
 # def fix_db(db: Session = Depends(get_db)):
 #     tickets = db.query(Ticket).filter(Ticket.token == 'buOs11IDXwseQCb3bLvAxNv0Gx4HLC21Um').all()
