@@ -22,8 +22,8 @@ import shutil
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 cors_env = os.environ.get("CORS_ORIGINS")
-ENTRY_IMAGE_DIR = "entry_images/"
-CAR_IMAGE_DIR = "car_images/"
+ENTRY_IMAGE_DIR = "D:/entry_images/"
+CAR_IMAGE_DIR = "D:/car_images/"
 if cors_env:
     origins = [o.strip() for o in cors_env.split(",")]
 else:
@@ -38,23 +38,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-UPLOAD_FOLDER ="exit_videos/"
+UPLOAD_FOLDER ="D:/exit_video/"
 # Pydantic schema
 class TicketCreate(BaseModel):
     token: str
-    access_point_id: Optional[int]
-    number: Optional[str]
-    code: Optional[str]
-    city: Optional[str]
-    status: Optional[str]
-    spot_number: Optional[int]
-    trip_p_id: Optional[int]
-    ticket_key_id: Optional[int]
-    entry_time: Optional[datetime]
-    exit_time: Optional[datetime]
-    entry_pic_base64: Optional[str]
-    car_pic_base64: str
-    exit_video_path: Optional[str]
+    access_point_id: Optional[int] = None
+    number: Optional[str] = None
+    code: Optional[str] = None
+    city: Optional[str] = None
+    status: Optional[str] = None
+    spot_number: Optional[int] = None
+    trip_p_id: Optional[int] = None
+    ticket_key_id: Optional[int] = None
+    entry_time: Optional[datetime] = None
+    exit_time: Optional[datetime] = None
+    entry_pic_base64: Optional[str] = None
+    car_pic_base64: str = None
+    exit_video_path: Optional[str] = None
 
 class TicketOut(BaseModel):
     id: int
