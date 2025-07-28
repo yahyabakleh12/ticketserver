@@ -111,6 +111,12 @@ def download_file(url: str, folder: str) -> str:
             shutil.copyfileobj(r.raw, f)
     return local_filename
 
+def normalize_path_car(path: str) -> str:
+    if not path.startswith("D:/car_images/"):
+        # If it only contains "entry_images/" and not the full path
+        if path.startswith("car_images/"):
+            return "D:/" + path
+    return path
 
 @app.get("/tickets/", response_model=List[TicketOut])
 def get_tickets(db: Session = Depends(get_db)):
@@ -210,10 +216,12 @@ def submit_ticket(ticket_id: int, db: Session):
 
         car_bs64 = ""
         in_bs64 = ""
-        with open(ticket.car_pic, "rb") as f:
+        normalized_path_car=normalize_path_car(ticket.car_pic)
+        with open(normalized_path_car, "rb") as f:
             car_bytes = f.read()
         car_bs64 = base64.b64encode(car_bytes).decode("utf-8")
-        with open(ticket.entry_pic_base64, "rb") as d:
+        normalized_path=normalize_path(ticket.entry_pic_base64)
+        with open(normalized_path, "rb") as d:
             in_bytes = d.read()
         in_bs64 = base64.b64encode(in_bytes).decode("utf-8")
         print(ticket.token)
@@ -259,8 +267,8 @@ def submit_ticket(ticket_id: int, db: Session):
             status="submitted",
             entry_time=ticket.entry_time,
             exit_time=ticket.exit_time,
-            entry_pic_base64=ticket.entry_pic_base64,
-            car_pic=ticket.car_pic,
+            entry_pic_base64=normalized_path,
+            car_pic=normalized_path_car,
             exit_video_path=ticket.exit_video_path,
             spot_number=ticket.spot_number,
             trip_p_id=ticket.trip_p_id,
@@ -333,6 +341,7 @@ def get_exit_video(video_name: str):
     # 1. Look up the ticket in the database
     
     exit_video_path = os.path.join(UPLOAD_FOLDER,video_name)
+
     # print(os.path.isfile(exit_video_path))
     if os.path.isfile(exit_video_path):
         # 2. Return the file on disk
@@ -344,28 +353,38 @@ def get_exit_video(video_name: str):
     else:
         raise HTTPException(status_code=404, detail="Video not found")
 
+
 @app.get("/image-car/{id}")
 def get_image(id: str,db: Session = Depends(get_db)):
     # 1. Look up the ticket in the database
     ticket = db.query(Ticket).filter(Ticket.id == id).first()
-    if os.path.isfile(ticket.car_pic):
+    normalized_path_car =normalize_path_car(ticket.car_pic)
+    if os.path.isfile(normalized_path_car):
         # 2. Return the file on disk
         return FileResponse(
-            path=ticket.car_pic,
+            path=normalized_path_car,
             media_type="image/jpg",            # adjust if your videos are a different format
             filename=ticket.car_pic  # suggested download name
         )
     else:
     
         raise HTTPException(status_code=404, detail="Video not found")
+def normalize_path(path: str) -> str:
+    if not path.startswith("D:/entry_images/"):
+        # If it only contains "entry_images/" and not the full path
+        if path.startswith("entry_images/"):
+            return "D:/" + path
+    return path
+
 @app.get("/image-in/{id}")
 def get_image(id: str,db: Session = Depends(get_db)):
     # 1. Look up the ticket in the database
     ticket = db.query(Ticket).filter(Ticket.id == id).first()
-    if os.path.isfile(ticket.entry_pic_base64):
+    normalized_path = normalize_path(ticket.entry_pic_base64)
+    if os.path.isfile(normalized_path):
         # 2. Return the file on disk
         return FileResponse(
-            path=ticket.entry_pic_base64,
+            path=normalized_path,
             media_type="image/jpg",            # adjust if your videos are a different format
             filename=ticket.entry_pic_base64  # suggested download name
         )
