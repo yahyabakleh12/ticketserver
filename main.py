@@ -121,7 +121,13 @@ def normalize_path_car(path: str) -> str:
 @app.get("/tickets/", response_model=List[TicketOut])
 def get_tickets(page: int = 1, page_size: int = 50, db: Session = Depends(get_db)):
     offset = (page - 1) * page_size
-    tickets = db.query(Ticket).offset(offset).limit(page_size).all()
+    tickets = (
+        db.query(Ticket)
+        .order_by(Ticket.id.desc())
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
     return tickets
 @app.get("/tickets/next-id")
 def get_next_ticket_id(db: Session = Depends(get_db)):
@@ -133,13 +139,25 @@ def get_next_ticket_id(db: Session = Depends(get_db)):
 @app.get("/submittedtickets/", response_model=List[TicketOut])
 def get_submitted_tickets(page: int = 1, page_size: int = 50, db: Session = Depends(get_db)):
     offset = (page - 1) * page_size
-    tickets = db.query(SubmittedTicket).offset(offset).limit(page_size).all()
+    tickets = (
+        db.query(SubmittedTicket)
+        .order_by(SubmittedTicket.id.desc())
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
     return tickets
 
 @app.get("/cancelledtickets/", response_model=List[TicketOut])
 def get_cancelled_tickets(page: int = 1, page_size: int = 50, db: Session = Depends(get_db)):
     offset = (page - 1) * page_size
-    tickets = db.query(CancelledTicket).offset(offset).limit(page_size).all()
+    tickets = (
+        db.query(CancelledTicket)
+        .order_by(CancelledTicket.id.desc())
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
     return tickets
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
