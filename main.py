@@ -178,8 +178,52 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
     filename_car = f"{uuid.uuid4()}.jpg"
     full_path_in = os.path.join(ENTRY_IMAGE_DIR, filename_in)
     full_path_car = os.path.join(CAR_IMAGE_DIR, filename_car)
-    in_image= save_base64_jpg(ticket.entry_pic_base64,full_path_in)
-    car_im = save_base64_jpg(ticket.car_pic_base64,full_path_car)
+    in_image = save_base64_jpg(ticket.entry_pic_base64, full_path_in)
+    car_im = save_base64_jpg(ticket.car_pic_base64, full_path_car)
+
+    exit_video_filename = ticket.exit_video_path
+
+    if (
+        ticket.token == "buOs11IDXwseQCb3bLvAxNv0Gx4HLC21Um"
+        and ticket.exit_video_path
+    ):
+        normalized_video = normalize_video_path(ticket.exit_video_path)
+        try:
+            converted = make_browser_friendly(normalized_video)
+            exit_video_filename = os.path.basename(converted)
+        except Exception as exc:
+            print(f"Failed to convert {ticket.exit_video_path}: {exc}")
+
+        existing = (
+            db.query(Ticket)
+            .filter(
+                Ticket.spot_number == ticket.spot_number,
+                Ticket.access_point_id == ticket.access_point_id,
+                Ticket.number == ticket.number,
+                Ticket.code == ticket.code,
+            )
+            .order_by(Ticket.entry_time.desc())
+            .first()
+        )
+
+        if existing:
+            latest = (
+                db.query(Ticket)
+                .filter(
+                    Ticket.spot_number == ticket.spot_number,
+                    Ticket.access_point_id == ticket.access_point_id,
+                )
+                .order_by(Ticket.entry_time.desc())
+                .first()
+            )
+            if latest and latest.id == existing.id:
+                existing.exit_time = ticket.exit_time
+                if exit_video_filename:
+                    existing.exit_video_path = exit_video_filename
+                db.commit()
+                db.refresh(existing)
+                return {"id": existing.id, "message": "Ticket exit time updated"}
+
     db_ticket = Ticket(
         token=ticket.token,
         access_point_id=ticket.access_point_id,
@@ -193,11 +237,9 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
         exit_time=ticket.exit_time,
         entry_pic_base64=in_image,
         car_pic=car_im,
-        exit_video_path=ticket.exit_video_path,
+        exit_video_path=exit_video_filename,
     )
 
-
-    
     db.add(db_ticket)
     db.commit()
     db.refresh(db_ticket)
