@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 import uuid
 from parking_api import park_in_request, park_out_request
 from fastapi.responses import FileResponse
-import shutil
+from convert_video import make_browser_friendly
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 cors_env = os.environ.get("CORS_ORIGINS")
@@ -116,6 +116,11 @@ def normalize_path_car(path: str) -> str:
         # If it only contains "entry_images/" and not the full path
         if path.startswith("car_images/"):
             return "D:/" + path
+    return path
+
+def normalize_video_path(path: str) -> str:
+    if not path.startswith("D:/exit_video/"):
+        return os.path.join("D:/exit_video", os.path.basename(path))
     return path
 
 @app.get("/tickets/", response_model=List[TicketOut])
@@ -428,12 +433,24 @@ def get_image(id: str,db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Video not found")
 
 
-@app.get("/convert-video", response_model=List[TicketOut])
-def conver_video(db: Session = Depends(get_db)):
+@app.get("/convert-video/{token}", response_model=List[TicketOut])
+def convert_video(token: str, db: Session = Depends(get_db)):
     tickets = (
         db.query(Ticket)
-        .filter(Ticket.token == "buOs11IDXwseQCb3bLvAxNv0Gx4HLC21Um")
-        .order_by(Ticket.id.desc())        
+        .filter(Ticket.token == token)
+        .order_by(Ticket.id.desc())
         .all()
     )
+
+    for ticket in tickets:
+        if not ticket.exit_video_path:
+            continue
+        normalized = normalize_video_path(ticket.exit_video_path)
+        try:
+            new_path = make_browser_friendly(normalized)
+            ticket.exit_video_path = os.path.basename(new_path)
+        except Exception as exc:
+            print(f"Failed to convert {ticket.exit_video_path}: {exc}")
+
+    db.commit()
     return tickets
