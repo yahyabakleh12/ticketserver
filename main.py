@@ -429,7 +429,7 @@ def get_image(id: str,db: Session = Depends(get_db)):
 
 
 @app.get("/convert-video", response_model=List[TicketOut])
-def get_tickets(db: Session = Depends(get_db)):
+def conver_video(db: Session = Depends(get_db)):
     tickets = (
         db.query(Ticket)
         .filter(Ticket.token == "buOs11IDXwseQCb3bLvAxNv0Gx4HLC21Um")
