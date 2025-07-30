@@ -215,7 +215,11 @@ def get_next_ticket(id: int, db: Session = Depends(get_db)):
         .first()
     )
     if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+         ticket = (
+        db.query(Ticket)
+        .order_by(Ticket.id)
+        .first()
+    )
     return ticket
 @app.post("/upload-video")
 async def upload_video(file: UploadFile = File(...)):
@@ -422,3 +426,14 @@ def get_image(id: str,db: Session = Depends(get_db)):
     else:
     
         raise HTTPException(status_code=404, detail="Video not found")
+
+
+@app.get("/convert-video", response_model=List[TicketOut])
+def get_tickets(db: Session = Depends(get_db)):
+    tickets = (
+        db.query(Ticket)
+        .filter(Ticket.token == "buOs11IDXwseQCb3bLvAxNv0Gx4HLC21Um")
+        .order_by(Ticket.id.desc())        
+        .all()
+    )
+    return tickets
