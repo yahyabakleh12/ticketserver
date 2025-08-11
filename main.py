@@ -128,6 +128,7 @@ def get_tickets(page: int = 1, page_size: int = 50, db: Session = Depends(get_db
     offset = (page - 1) * page_size
     tickets = (
         db.query(Ticket)
+        .filter(Ticket.entry_time>"2025-07-28 23:59:59")
         .order_by(Ticket.id.desc())
         .offset(offset)
         .limit(page_size)
@@ -184,8 +185,7 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
     exit_video_filename = ticket.exit_video_path
 
     if (
-        ticket.token == "buOs11IDXwseQCb3bLvAxNv0Gx4HLC21Um"
-        and ticket.exit_video_path
+         ticket.exit_video_path
     ):
         normalized_video = normalize_video_path(ticket.exit_video_path)
         try:
@@ -257,6 +257,7 @@ def get_next_ticket(id: int, db: Session = Depends(get_db)):
     """Return the next ticket with an id greater than the provided id."""
     ticket = (
         db.query(Ticket)
+        .filter(Ticket.entry_time>"2025-07-28 23:59:59")
         .filter(Ticket.id > id)
         .order_by(Ticket.id)
         .first()
@@ -264,6 +265,7 @@ def get_next_ticket(id: int, db: Session = Depends(get_db)):
     if not ticket:
          ticket = (
         db.query(Ticket)
+        .filter(Ticket.entry_time>"2025-07-28 23:59:59")
         .order_by(Ticket.id)
         .first()
     )
