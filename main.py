@@ -123,6 +123,12 @@ def normalize_video_path(path: str) -> str:
         return os.path.join("D:/exit_video", os.path.basename(path))
     return path
 
+
+def is_video_file(path: str) -> bool:
+    """Return True if the given path has a video file extension."""
+    video_exts = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+    return os.path.splitext(path)[1].lower() in video_exts
+
 @app.get("/tickets/", response_model=List[TicketOut])
 def get_tickets(page: int = 1, page_size: int = 50, db: Session = Depends(get_db)):
     offset = (page - 1) * page_size
@@ -188,11 +194,14 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
          ticket.exit_video_path
     ):
         normalized_video = normalize_video_path(ticket.exit_video_path)
-        try:
-            converted = make_browser_friendly(normalized_video)
-            exit_video_filename = os.path.basename(converted)
-        except Exception as exc:
-            print(f"Failed to convert {ticket.exit_video_path}: {exc}")
+        if is_video_file(normalized_video) and "_bf" not in os.path.splitext(normalized_video)[0]:
+            try:
+                converted = make_browser_friendly(normalized_video)
+                exit_video_filename = os.path.basename(converted)
+            except Exception as exc:
+                print(f"Failed to convert {ticket.exit_video_path}: {exc}")
+        else:
+            exit_video_filename = os.path.basename(normalized_video)
 
         existing = (
             db.query(Ticket)
@@ -279,9 +288,17 @@ async def upload_video(file: UploadFile = File(...)):
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
+    response_name = unique_filename
+    if is_video_file(file_path) and "_bf" not in os.path.splitext(file_path)[0]:
+        try:
+            converted = make_browser_friendly(file_path)
+            response_name = os.path.basename(converted)
+        except Exception as exc:
+            print(f"Failed to convert {file_path}: {exc}")
+
     return JSONResponse(content={
-        "message": "Video uploaded successfully",
-        "file_name": unique_filename
+        "message": "File uploaded successfully",
+        "file_name": response_name
     })
 
 
@@ -490,6 +507,8 @@ def convert_video(token: str, db: Session = Depends(get_db)):
         if not ticket.exit_video_path:
             continue
         normalized = normalize_video_path(ticket.exit_video_path)
+        if not is_video_file(normalized) or "_bf" in os.path.splitext(normalized)[0]:
+            continue
         try:
             new_path = make_browser_friendly(normalized)
             ticket.exit_video_path = os.path.basename(new_path)
