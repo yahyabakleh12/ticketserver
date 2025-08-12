@@ -486,6 +486,77 @@ def cancel_ticket(id: int, db: Session = Depends(get_db)):
     db.refresh(cancelled)
     return cancelled
 
+
+def merge_duplicate_tickets(db: Session) -> dict:
+    """Merge tickets with identical plate and location info on the same day.
+
+    For each set of tickets sharing plate number, code, city, spot number and
+    access point within the same calendar day, keep the earliest entry record.
+    The earliest ticket's ``exit_time`` is updated to the latest ``exit_time``
+    seen in the set. All other tickets are moved to ``CancelledTicket`` and
+    removed from ``Ticket``.
+
+    :param db: Active database session.
+    :return: Summary with number of merged groups.
+    """
+
+    tickets = db.query(Ticket).order_by(Ticket.entry_time).all()
+    groups: dict[tuple, list[Ticket]] = {}
+    for t in tickets:
+        if not t.entry_time:
+            continue
+        key = (
+            t.number,
+            t.code,
+            t.city,
+            t.spot_number,
+            t.access_point_id,
+            t.entry_time.date(),
+        )
+        groups.setdefault(key, []).append(t)
+
+    merged_groups = 0
+    for key, group in groups.items():
+        if len(group) <= 1:
+            continue
+
+        group.sort(key=lambda x: x.entry_time)
+        first = group[0]
+        exit_times = [g.exit_time for g in group if g.exit_time]
+        if exit_times:
+            first.exit_time = max(exit_times)
+
+        for duplicate in group[1:]:
+            cancelled = CancelledTicket(
+                token=duplicate.token,
+                access_point_id=duplicate.access_point_id,
+                number=duplicate.number,
+                code=duplicate.code,
+                city=duplicate.city,
+                status="cancelled",
+                entry_time=duplicate.entry_time,
+                exit_time=duplicate.exit_time,
+                entry_pic_base64=duplicate.entry_pic_base64,
+                car_pic=duplicate.car_pic,
+                exit_video_path=duplicate.exit_video_path,
+                spot_number=duplicate.spot_number,
+                trip_p_id=duplicate.trip_p_id,
+                ticket_key_id=duplicate.ticket_key_id,
+            )
+            db.add(cancelled)
+            db.delete(duplicate)
+
+        merged_groups += 1
+
+    db.commit()
+    return {"merged_groups": merged_groups}
+
+
+@app.post("/tickets/merge-duplicates")
+def merge_duplicates(db: Session = Depends(get_db)):
+    """API endpoint to merge duplicate tickets."""
+    return merge_duplicate_tickets(db)
+
 @app.get("/videos/{video_name}")
 def get_exit_video(video_name: str):
     # 1. Look up the ticket in the database
