@@ -358,7 +358,7 @@ def submit_t(ticket_id: int, background_tasks: BackgroundTasks, db: Session = De
     return {"status": "submission scheduled"}
 
 
-@app.post("/submit/under-hour")
+@app.post("/submit-under-hour")
 def submit_short_tickets(db: Session = Depends(get_db)):
     """Submit all tickets with duration under one hour."""
     tickets = db.query(Ticket).filter(Ticket.exit_time != None).all()
