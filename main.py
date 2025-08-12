@@ -181,6 +181,45 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 @app.post("/ticket")
 def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
+    existing = (
+        db.query(Ticket)
+        .filter(
+            Ticket.spot_number == ticket.spot_number,
+            Ticket.access_point_id == ticket.access_point_id,
+            Ticket.number == ticket.number,
+            Ticket.code == ticket.code,
+        )
+        .order_by(Ticket.entry_time.desc())
+        .first()
+    )
+
+    if existing:
+        latest = (
+            db.query(Ticket)
+            .filter(
+                Ticket.spot_number == ticket.spot_number,
+                Ticket.access_point_id == ticket.access_point_id,
+            )
+            .order_by(Ticket.entry_time.desc())
+            .first()
+        )
+        if latest and latest.id == existing.id:
+            if ticket.exit_time:
+                existing.exit_time = ticket.exit_time
+            if ticket.exit_video_path:
+                normalized_video = normalize_video_path(ticket.exit_video_path)
+                if is_video_file(normalized_video) and "_bf" not in os.path.splitext(normalized_video)[0]:
+                    try:
+                        converted = make_browser_friendly(normalized_video)
+                        existing.exit_video_path = os.path.basename(converted)
+                    except Exception as exc:
+                        print(f"Failed to convert {ticket.exit_video_path}: {exc}")
+                else:
+                    existing.exit_video_path = os.path.basename(normalized_video)
+            db.commit()
+            db.refresh(existing)
+            return {"id": existing.id, "message": "Ticket exit time updated"}
+
     filename_in = f"{uuid.uuid4()}.jpg"
     filename_car = f"{uuid.uuid4()}.jpg"
     full_path_in = os.path.join(ENTRY_IMAGE_DIR, filename_in)
@@ -189,10 +228,7 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
     car_im = save_base64_jpg(ticket.car_pic_base64, full_path_car)
 
     exit_video_filename = ticket.exit_video_path
-
-    if (
-         ticket.exit_video_path
-    ):
+    if ticket.exit_video_path:
         normalized_video = normalize_video_path(ticket.exit_video_path)
         if is_video_file(normalized_video) and "_bf" not in os.path.splitext(normalized_video)[0]:
             try:
@@ -202,36 +238,6 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
                 print(f"Failed to convert {ticket.exit_video_path}: {exc}")
         else:
             exit_video_filename = os.path.basename(normalized_video)
-
-        existing = (
-            db.query(Ticket)
-            .filter(
-                Ticket.spot_number == ticket.spot_number,
-                Ticket.access_point_id == ticket.access_point_id,
-                Ticket.number == ticket.number,
-                Ticket.code == ticket.code,
-            )
-            .order_by(Ticket.entry_time.desc())
-            .first()
-        )
-
-        if existing:
-            latest = (
-                db.query(Ticket)
-                .filter(
-                    Ticket.spot_number == ticket.spot_number,
-                    Ticket.access_point_id == ticket.access_point_id,
-                )
-                .order_by(Ticket.entry_time.desc())
-                .first()
-            )
-            if latest and latest.id == existing.id:
-                existing.exit_time = ticket.exit_time
-                if exit_video_filename:
-                    existing.exit_video_path = exit_video_filename
-                db.commit()
-                db.refresh(existing)
-                return {"id": existing.id, "message": "Ticket exit time updated"}
 
     db_ticket = Ticket(
         token=ticket.token,
