@@ -362,11 +362,17 @@ def submit_t(ticket_id: int, background_tasks: BackgroundTasks, db: Session = De
 def submit_short_tickets(db: Session = Depends(get_db)):
     """Submit all tickets with duration under one hour."""
     tickets = db.query(Ticket).filter(Ticket.exit_time != None).all()
-    ids_to_submit = [
-        t.id
-        for t in tickets
-        if t.entry_time and t.exit_time and t.exit_time - t.entry_time < timedelta(hours=1)
-    ]
+    ids_to_submit = []
+
+    for t in tickets:
+        if not t.entry_time or not t.exit_time:
+            continue
+
+        duration = t.exit_time - t.entry_time
+        print(f"Ticket {t.id} duration: {duration}")
+
+        if timedelta(0) <= duration < timedelta(hours=1):
+            ids_to_submit.append(t.id)
 
     for tid in ids_to_submit:
         submit_ticket(tid, SessionLocal())
