@@ -357,6 +357,22 @@ def submit_t(ticket_id: int, background_tasks: BackgroundTasks, db: Session = De
     background_tasks.add_task(submit_ticket, ticket_id, db)
     return {"status": "submission scheduled"}
 
+
+@app.post("/submit/under-hour")
+def submit_short_tickets(db: Session = Depends(get_db)):
+    """Submit all tickets with duration under one hour."""
+    tickets = db.query(Ticket).filter(Ticket.exit_time != None).all()
+    ids_to_submit = [
+        t.id
+        for t in tickets
+        if t.entry_time and t.exit_time and t.exit_time - t.entry_time < timedelta(hours=1)
+    ]
+
+    for tid in ids_to_submit:
+        submit_ticket(tid, SessionLocal())
+
+    return {"submitted": len(ids_to_submit)}
+
 def submit_ticket(ticket_id: int, db: Session):
     """Submit a ticket by calling park-in then park-out APIs."""
     try:
