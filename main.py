@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Backgroun
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Optional, List
+import asyncio
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from database import SessionLocal, engine
@@ -128,6 +129,48 @@ def is_video_file(path: str) -> bool:
     """Return True if the given path has a video file extension."""
     video_exts = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
     return os.path.splitext(path)[1].lower() in video_exts
+
+
+def submit_previous_day_tickets() -> None:
+    """Submit all tickets from the previous day with duration under one hour."""
+    start_prev = datetime.combine(datetime.now().date() - timedelta(days=1), datetime.min.time())
+    end_prev = start_prev + timedelta(days=1)
+    db = SessionLocal()
+    try:
+        tickets = (
+            db.query(Ticket)
+            .filter(
+                Ticket.entry_time >= start_prev,
+                Ticket.entry_time < end_prev,
+                Ticket.exit_time != None,
+            )
+            .all()
+        )
+    finally:
+        db.close()
+
+    ids_to_submit = [
+        t.id
+        for t in tickets
+        if t.entry_time and t.exit_time and t.exit_time - t.entry_time < timedelta(hours=1)
+    ]
+
+    for tid in ids_to_submit:
+        submit_ticket(tid, SessionLocal())
+
+
+async def schedule_midnight_submission() -> None:
+    """Run submission task every midnight."""
+    while True:
+        now = datetime.now()
+        next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        await asyncio.sleep((next_midnight - now).total_seconds())
+        submit_previous_day_tickets()
+
+
+@app.on_event("startup")
+async def start_scheduler() -> None:
+    asyncio.create_task(schedule_midnight_submission())
 
 @app.get("/tickets/", response_model=List[TicketOut])
 def get_tickets(page: int = 1, page_size: int = 50, db: Session = Depends(get_db)):
