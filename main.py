@@ -224,6 +224,11 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
 @app.post("/ticket")
 def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
+    ref_time = ticket.entry_time or ticket.exit_time or datetime.now()
+    day_start = ref_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    time_threshold = max(ref_time - timedelta(hours=2), day_start)
+
     existing = (
         db.query(Ticket)
         .filter(
@@ -231,6 +236,8 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
             Ticket.access_point_id == ticket.access_point_id,
             Ticket.number == ticket.number,
             Ticket.code == ticket.code,
+            Ticket.entry_time >= time_threshold,
+            Ticket.entry_time < day_end,
         )
         .order_by(Ticket.entry_time.desc())
         .first()
@@ -242,6 +249,8 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
             .filter(
                 Ticket.spot_number == ticket.spot_number,
                 Ticket.access_point_id == ticket.access_point_id,
+                Ticket.entry_time >= time_threshold,
+                Ticket.entry_time < day_end,
             )
             .order_by(Ticket.entry_time.desc())
             .first()
