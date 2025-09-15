@@ -243,6 +243,11 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
         .first()
     )
 
+    if existing and existing.exit_time and ticket.entry_time:
+        time_diff = ticket.entry_time - existing.exit_time
+        if time_diff > timedelta(hours=2):
+            existing = None
+
     if existing:
         latest = (
             db.query(Ticket)
