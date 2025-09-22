@@ -15,6 +15,7 @@ import os
 import base64
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
 import uuid
 from parking_api import park_in_request, park_out_request
@@ -40,6 +41,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 UPLOAD_FOLDER ="D:/exit_video/"
+
+
+def success_response(message: str, identifier, **extra) -> JSONResponse:
+    """Return a unified success response with status code 200."""
+    payload = {"message": message, "id": identifier}
+    if extra:
+        payload.update(extra)
+    return JSONResponse(status_code=200, content=jsonable_encoder(payload))
+
 # Pydantic schema
 class TicketCreate(BaseModel):
     token: str
@@ -275,7 +285,7 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
                     existing.exit_video_path = os.path.basename(normalized_video)
             db.commit()
             db.refresh(existing)
-            return {"id": existing.id, "message": "Ticket exit time updated"}
+            return success_response("Ticket exit time updated", existing.id)
 
     filename_in = f"{uuid.uuid4()}.jpg"
     filename_car = f"{uuid.uuid4()}.jpg"
@@ -315,7 +325,7 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
     db.add(db_ticket)
     db.commit()
     db.refresh(db_ticket)
-    return {"id": db_ticket.id, "message": "Ticket created successfully"}
+    return success_response("Ticket created successfully", db_ticket.id)
 
 @app.get("/ticket/{id}", response_model=TicketOut)
 def view_ticket(id: int, db: Session = Depends(get_db)):
@@ -359,17 +369,14 @@ async def upload_video(file: UploadFile = File(...)):
         except Exception as exc:
             print(f"Failed to convert {file_path}: {exc}")
 
-    return JSONResponse(content={
-        "message": "File uploaded successfully",
-        "file_name": response_name
-    })
+    return success_response("File uploaded successfully", response_name, file_name=response_name)
 
 
 @app.post("/submit/{ticket_id}")
 def submit_t(ticket_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Schedule ticket submission in the background."""
     background_tasks.add_task(submit_ticket, ticket_id, db)
-    return {"status": "submission scheduled"}
+    return success_response("Submission scheduled", ticket_id)
 
 
 @app.post("/submit-under-hour")
@@ -391,7 +398,11 @@ def submit_short_tickets(db: Session = Depends(get_db)):
     for tid in ids_to_submit:
         submit_ticket(tid, SessionLocal())
 
-    return {"submitted": len(ids_to_submit)}
+    return success_response(
+        "Submitted tickets under one hour",
+        ids_to_submit,
+        submitted=len(ids_to_submit),
+    )
 
 def submit_ticket(ticket_id: int, db: Session):
     """Submit a ticket by calling park-in then park-out APIs."""
@@ -465,7 +476,12 @@ def submit_ticket(ticket_id: int, db: Session):
         db.commit()
         db.refresh(submitted)
 
-        return {"park_in": parkin_resp, "park_out": parkout_resp, "ticket_id": submitted.id}
+        return success_response(
+            "Ticket submitted successfully",
+            submitted.id,
+            park_in=parkin_resp,
+            park_out=parkout_resp,
+        )
     finally:
         db.close()
 # @app.get("/fix")
@@ -520,7 +536,8 @@ def cancel_ticket(id: int, db: Session = Depends(get_db)):
     db.delete(ticket)
     db.commit()
     db.refresh(cancelled)
-    return cancelled
+    ticket_payload = TicketOut.from_orm(cancelled).dict()
+    return success_response("Ticket cancelled successfully", cancelled.id, ticket=ticket_payload)
 
 
 def merge_duplicate_tickets(db: Session) -> dict:
@@ -585,7 +602,7 @@ def merge_duplicate_tickets(db: Session) -> dict:
         merged_groups += 1
 
     db.commit()
-    return {"merged_groups": merged_groups}
+    return success_response("Merged duplicate tickets", merged_groups)
 
 
 @app.post("/tickets/merge-duplicates")
