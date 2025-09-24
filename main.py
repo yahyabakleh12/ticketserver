@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 import asyncio
 from sqlalchemy.orm import Session
@@ -84,8 +84,7 @@ class TicketOut(BaseModel):
     car_pic: Optional[str] = None
     exit_video_path: Optional[str] = None
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 # Dependency to get db session
 def get_db():
