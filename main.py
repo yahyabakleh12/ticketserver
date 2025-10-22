@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 import os
 import re
 import base64
+import json
+import aiofiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
@@ -22,17 +24,54 @@ import uuid
 from parking_api import park_in_request, park_out_request
 from fastapi.responses import FileResponse
 from convert_video import make_browser_friendly
+
+
+WINDOWS_ABS_PATH_PATTERN = re.compile(r"^[A-Za-z]:[/\\]")
+
+
+def _normalize_directory(path: str) -> str:
+    """Return a normalized directory path for consistent joins."""
+
+    expanded = os.path.expanduser(path)
+    return os.path.normpath(expanded)
+
+
+def _resolve_relative_path(path: Optional[str], base_dir: str) -> Optional[str]:
+    """Resolve *path* against *base_dir* when it is not absolute."""
+
+    if not path:
+        return path
+    if os.path.isabs(path) or WINDOWS_ABS_PATH_PATTERN.match(path):
+        return os.path.normpath(path)
+
+    normalized = path.replace("\\", "/").lstrip("/")
+    base_name = os.path.basename(os.path.normpath(base_dir))
+    if base_name:
+        lowered = normalized.lower()
+        prefix = f"{base_name.lower()}/"
+        if lowered.startswith(prefix):
+            normalized = normalized[len(prefix) :]
+
+    if not normalized:
+        return os.path.normpath(base_dir)
+
+    return os.path.normpath(os.path.join(base_dir, normalized))
+
+
+ENTRY_IMAGE_DIR = _normalize_directory(os.environ.get("ENTRY_IMAGE_DIR", "D:/entry_images"))
+CAR_IMAGE_DIR = _normalize_directory(os.environ.get("CAR_IMAGE_DIR", "D:/car_images"))
+UPLOAD_FOLDER = _normalize_directory(os.environ.get("EXIT_VIDEO_DIR", "D:/exit_video"))
+CONFIG_PATH = os.environ.get("TICKETSERVER_CONFIG_PATH")
+
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
 cors_env = os.environ.get("CORS_ORIGINS")
-ENTRY_IMAGE_DIR = "D:/entry_images/"
-CAR_IMAGE_DIR = "D:/car_images/"
 if cors_env:
     origins = [o.strip() for o in cors_env.split(",")]
 else:
     origins = [
         "http://localhost:5173",
-       
+
     ]
 app.add_middleware(
     CORSMiddleware,
@@ -41,7 +80,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-UPLOAD_FOLDER ="D:/exit_video/"
 
 
 def success_response(message: str, identifier, **extra) -> JSONResponse:
@@ -109,9 +147,10 @@ def save_base64_jpg(b64_string: str, output_path: str):
 
     # Decode and write to a file
     img_data = base64.b64decode(b64_string)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "wb") as f:
         f.write(img_data)
-    return output_path 
+    return output_path
 
 def download_file(url: str, folder: str) -> str:
     os.makedirs(folder, exist_ok=True)
@@ -122,17 +161,50 @@ def download_file(url: str, folder: str) -> str:
             shutil.copyfileobj(r.raw, f)
     return local_filename
 
+async def load_runtime_config() -> None:
+    """Load optional directory configuration from a JSON file."""
+
+    global ENTRY_IMAGE_DIR, CAR_IMAGE_DIR, UPLOAD_FOLDER
+
+    if not CONFIG_PATH:
+        return
+
+    try:
+        async with aiofiles.open(CONFIG_PATH, "r", encoding="utf-8") as config_file:
+            raw_config = await config_file.read()
+    except FileNotFoundError:
+        print(f"Config file {CONFIG_PATH} not found; using default directories.")
+        return
+    except OSError as exc:
+        print(f"Failed to open config file {CONFIG_PATH}: {exc}")
+        return
+
+    try:
+        data = json.loads(raw_config)
+    except json.JSONDecodeError as exc:
+        print(f"Invalid JSON in config file {CONFIG_PATH}: {exc}")
+        return
+
+    entry_dir = data.get("entry_image_dir")
+    car_dir = data.get("car_image_dir")
+    exit_dir = data.get("exit_video_dir")
+
+    if entry_dir:
+        ENTRY_IMAGE_DIR = _normalize_directory(entry_dir)
+    if car_dir:
+        CAR_IMAGE_DIR = _normalize_directory(car_dir)
+    if exit_dir:
+        UPLOAD_FOLDER = _normalize_directory(exit_dir)
+
+
 def normalize_path_car(path: str) -> str:
-    if not path.startswith("D:/car_images/"):
-        # If it only contains "entry_images/" and not the full path
-        if path.startswith("car_images/"):
-            return "D:/" + path
-    return path
+    normalized = _resolve_relative_path(path, CAR_IMAGE_DIR)
+    return normalized if normalized is not None else path
+
 
 def normalize_video_path(path: str) -> str:
-    if not path.startswith("D:/exit_video/"):
-        return os.path.join("D:/exit_video", os.path.basename(path))
-    return path
+    normalized = _resolve_relative_path(path, UPLOAD_FOLDER)
+    return normalized if normalized is not None else path
 
 
 def is_video_file(path: str) -> bool:
@@ -180,6 +252,7 @@ async def schedule_midnight_submission() -> None:
 
 @app.on_event("startup")
 async def start_scheduler() -> None:
+    await load_runtime_config()
     asyncio.create_task(schedule_midnight_submission())
 
 @app.get("/tickets/", response_model=List[TicketOut])
@@ -433,6 +506,7 @@ async def upload_video(file: UploadFile = File(...)):
     unique_filename = f"{uuid.uuid4()}{file_extension}"
     file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
 
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
@@ -719,11 +793,8 @@ def get_image(id: str,db: Session = Depends(get_db)):
     
         raise HTTPException(status_code=404, detail="Video not found")
 def normalize_path(path: str) -> str:
-    if not path.startswith("D:/entry_images/"):
-        # If it only contains "entry_images/" and not the full path
-        if path.startswith("entry_images/"):
-            return "D:/" + path
-    return path
+    normalized = _resolve_relative_path(path, ENTRY_IMAGE_DIR)
+    return normalized if normalized is not None else path
 
 @app.get("/image-in/{id}")
 def get_image(id: str,db: Session = Depends(get_db)):
