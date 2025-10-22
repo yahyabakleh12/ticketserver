@@ -12,6 +12,7 @@ import requests
 import shutil
 from datetime import datetime, timedelta
 import os
+import re
 import base64
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -231,12 +232,25 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     access_token = create_access_token(data={"sub": user.username}, expires_delta=timedelta(minutes=60))
     return {"access_token": access_token, "token_type": "bearer"}
 
+
+def clean_plate(p: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", (p or "").upper())
+
+def plate_similarity_strict(p1: str, p2: str) -> float:
+    p1, p2 = clean_plate(p1), clean_plate(p2)
+    n = min(len(p1), len(p2))
+    if n == 0:
+        return 0.0
+    matches = sum(1 for i in range(n) if p1[i] == p2[i])
+    return matches / max(len(p1), len(p2))
+
+
 @app.post("/ticket")
 def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
     ref_time = ticket.entry_time or ticket.exit_time or datetime.now()
     day_start = ref_time.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
-    time_threshold = max(ref_time - timedelta(hours=2), day_start)
+    # time_threshold = max(ref_time - timedelta(hours=2), day_start)
 
     existing = (
         db.query(Ticket)
@@ -244,18 +258,18 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
             Ticket.spot_number == ticket.spot_number,
             Ticket.access_point_id == ticket.access_point_id,
             Ticket.number == ticket.number,
-            Ticket.code == ticket.code,
-            Ticket.entry_time >= time_threshold,
+            # Ticket.code == ticket.code,
+            # Ticket.entry_time >= time_threshold,
             Ticket.entry_time < day_end,
         )
         .order_by(Ticket.entry_time.desc())
         .first()
     )
 
-    if existing and existing.exit_time and ticket.entry_time:
-        time_diff = ticket.entry_time - existing.exit_time
-        if time_diff > timedelta(hours=2):
-            existing = None
+    # if existing and existing.exit_time and ticket.entry_time:
+    #     time_diff = ticket.entry_time - existing.exit_time
+    #     if time_diff > timedelta(hours=2):
+    #         existing = None
 
     if existing:
         latest = (
@@ -263,7 +277,7 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
             .filter(
                 Ticket.spot_number == ticket.spot_number,
                 Ticket.access_point_id == ticket.access_point_id,
-                Ticket.entry_time >= time_threshold,
+                # Ticket.entry_time >= time_threshold,
                 Ticket.entry_time < day_end,
             )
             .order_by(Ticket.entry_time.desc())
@@ -284,7 +298,68 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
                     existing.exit_video_path = os.path.basename(normalized_video)
             db.commit()
             db.refresh(existing)
+            print("Ticket exit time updated")
             return success_response("Ticket exit time updated", existing.id)
+
+    
+    # // ADD BY MHD
+    last_car = (
+        db.query(Ticket)
+        .filter(
+            Ticket.spot_number == ticket.spot_number,
+            Ticket.access_point_id == ticket.access_point_id,
+        )
+        .order_by(Ticket.id.desc())
+        .first()
+    )
+
+    print("New car detected:")
+    print(f"  Spot: {ticket.spot_number}, Access Point: {ticket.access_point_id}")
+    print(f"  Plate: {ticket.code} {ticket.number}")
+
+    if last_car:
+        print(f"  Last car in this spot: {last_car.code} {last_car.number}")
+
+        new_plate_full = f"{ticket.code}-{ticket.number}".upper()
+        old_plate_full = f"{last_car.code}-{last_car.number}".upper()
+
+        similarity = plate_similarity_strict(new_plate_full, old_plate_full)
+        print(f"[PLATE CHECK] new={new_plate_full}, last={old_plate_full}, similarity={similarity:.2f}")
+
+        # ✅ If similar → update last ticket instead of creating new one
+        if similarity >= 0.6:
+            print(f"[DUPLICATE] Similar plate detected ({similarity:.2f}) → updating last ticket #{last_car.id}")
+
+            # Update exit time if provided
+            if ticket.exit_time:
+                last_car.exit_time = ticket.exit_time
+
+            # Update exit video if provided
+            if ticket.exit_video_path:
+                normalized_video = normalize_video_path(ticket.exit_video_path)
+                if is_video_file(normalized_video) and "_bf" not in os.path.splitext(normalized_video)[0]:
+                    try:
+                        converted = make_browser_friendly(normalized_video)
+                        last_car.exit_video_path = os.path.basename(converted)
+                        print(f"Exit video converted and updated for ticket #{last_car.id}")
+                    except Exception as exc:
+                        print(f"Failed to convert {ticket.exit_video_path}: {exc}")
+                else:
+                    last_car.exit_video_path = os.path.basename(normalized_video)
+                    print(f"Exit video updated for ticket #{last_car.id}")
+
+            # Commit database changes
+            db.commit()
+            db.refresh(last_car)
+            print(f"Ticket #{last_car.id} updated successfully (exit time/video).")
+            return success_response("Similar plate detected → Ticket updated", last_car.id)
+
+        else:
+            print(f"[INFO] Different plate detected ({similarity:.2f}) → new car, creating new ticket.")
+    else:
+        print("No previous car found for this spot.")
+
+    #!//////////////
 
     filename_in = f"{uuid.uuid4()}.jpg"
     filename_car = f"{uuid.uuid4()}.jpg"
@@ -324,6 +399,7 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
     db.add(db_ticket)
     db.commit()
     db.refresh(db_ticket)
+    print('Ticket created successfully')
     return success_response("Ticket created successfully", db_ticket.id)
 
 @app.get("/ticket/{id}", response_model=TicketOut)
