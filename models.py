@@ -6,7 +6,7 @@ class Ticket(Base):
     __tablename__ = "Ticket"
 
     id = Column(Integer, primary_key=True, index=True)
-    token = Column(String(255), unique=True, index=True)
+    token = Column(String(255), index=True)
     access_point_id = Column(Integer)
     number = Column(String(50))
     code = Column(String(50))
@@ -26,7 +26,7 @@ class SubmittedTicket(Base):
     __tablename__ = "SubmittedTicket"
 
     id = Column(Integer, primary_key=True, index=True)
-    token = Column(String(255), unique=True, index=True)
+    token = Column(String(255), index=True)
     access_point_id = Column(Integer)
     number = Column(String(50))
     code = Column(String(50))
@@ -46,7 +46,7 @@ class CancelledTicket(Base):
     __tablename__ = "CancelledTicket"
 
     id = Column(Integer, primary_key=True, index=True)
-    token = Column(String(255), unique=True, index=True)
+    token = Column(String(255), index=True)
     access_point_id = Column(Integer)
     number = Column(String(50))
     code = Column(String(50))
