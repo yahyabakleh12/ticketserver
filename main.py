@@ -320,6 +320,64 @@ def plate_similarity_strict(p1: str, p2: str) -> float:
 
 @app.post("/ticket")
 def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
+    # First, handle duplicate token scenario to avoid integrity errors.
+    existing_token_ticket = (
+        db.query(Ticket).filter(Ticket.token == ticket.token).first()
+    )
+    if existing_token_ticket:
+        print(
+            f"[TOKEN DUPLICATE] Token {ticket.token} exists; updating ticket #{existing_token_ticket.id}."
+        )
+
+        scalar_fields = [
+            "access_point_id",
+            "number",
+            "code",
+            "city",
+            "status",
+            "spot_number",
+            "trip_p_id",
+            "ticket_key_id",
+            "entry_time",
+            "exit_time",
+        ]
+        for field in scalar_fields:
+            value = getattr(ticket, field)
+            if value is not None:
+                setattr(existing_token_ticket, field, value)
+
+        if ticket.entry_pic_base64:
+            filename_in = f"{uuid.uuid4()}.jpg"
+            full_path_in = os.path.join(ENTRY_IMAGE_DIR, filename_in)
+            existing_token_ticket.entry_pic_base64 = save_base64_jpg(
+                ticket.entry_pic_base64, full_path_in
+            )
+
+        if ticket.car_pic_base64:
+            filename_car = f"{uuid.uuid4()}.jpg"
+            full_path_car = os.path.join(CAR_IMAGE_DIR, filename_car)
+            existing_token_ticket.car_pic = save_base64_jpg(
+                ticket.car_pic_base64, full_path_car
+            )
+
+        if ticket.exit_video_path:
+            normalized_video = normalize_video_path(ticket.exit_video_path)
+            exit_video_filename = os.path.basename(normalized_video)
+            if is_video_file(normalized_video) and "_bf" not in os.path.splitext(normalized_video)[0]:
+                try:
+                    converted = make_browser_friendly(normalized_video)
+                    exit_video_filename = os.path.basename(converted)
+                except Exception as exc:
+                    print(f"Failed to convert {ticket.exit_video_path}: {exc}")
+            existing_token_ticket.exit_video_path = exit_video_filename
+
+        db.commit()
+        db.refresh(existing_token_ticket)
+        return success_response(
+            "Duplicate token detected → Ticket updated",
+            existing_token_ticket.id,
+        )
+
     ref_time = ticket.entry_time or ticket.exit_time or datetime.now()
     day_start = ref_time.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
