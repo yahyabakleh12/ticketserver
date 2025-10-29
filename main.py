@@ -213,6 +213,22 @@ def is_video_file(path: str) -> bool:
     return os.path.splitext(path)[1].lower() in video_exts
 
 
+async def _write_bytes(path: str, data: bytes) -> None:
+    """Write *data* to *path* in a background thread."""
+
+    def _write() -> None:
+        with open(path, "wb") as f:
+            f.write(data)
+
+    await asyncio.to_thread(_write)
+
+
+async def _convert_video(path: str) -> str:
+    """Run ``make_browser_friendly`` in a background thread."""
+
+    return await asyncio.to_thread(make_browser_friendly, path)
+
+
 def submit_previous_day_tickets() -> None:
     """Submit all tickets from the previous day with duration under one hour."""
     start_prev = datetime.combine(datetime.now().date() - timedelta(days=1), datetime.min.time())
@@ -320,64 +336,6 @@ def plate_similarity_strict(p1: str, p2: str) -> float:
 
 @app.post("/ticket")
 def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
-    # First, handle duplicate token scenario to avoid integrity errors.
-    existing_token_ticket = (
-        db.query(Ticket).filter(Ticket.token == ticket.token).first()
-    )
-    if existing_token_ticket:
-        print(
-            f"[TOKEN DUPLICATE] Token {ticket.token} exists; updating ticket #{existing_token_ticket.id}."
-        )
-
-        scalar_fields = [
-            "access_point_id",
-            "number",
-            "code",
-            "city",
-            "status",
-            "spot_number",
-            "trip_p_id",
-            "ticket_key_id",
-            "entry_time",
-            "exit_time",
-        ]
-        for field in scalar_fields:
-            value = getattr(ticket, field)
-            if value is not None:
-                setattr(existing_token_ticket, field, value)
-
-        if ticket.entry_pic_base64:
-            filename_in = f"{uuid.uuid4()}.jpg"
-            full_path_in = os.path.join(ENTRY_IMAGE_DIR, filename_in)
-            existing_token_ticket.entry_pic_base64 = save_base64_jpg(
-                ticket.entry_pic_base64, full_path_in
-            )
-
-        if ticket.car_pic_base64:
-            filename_car = f"{uuid.uuid4()}.jpg"
-            full_path_car = os.path.join(CAR_IMAGE_DIR, filename_car)
-            existing_token_ticket.car_pic = save_base64_jpg(
-                ticket.car_pic_base64, full_path_car
-            )
-
-        if ticket.exit_video_path:
-            normalized_video = normalize_video_path(ticket.exit_video_path)
-            exit_video_filename = os.path.basename(normalized_video)
-            if is_video_file(normalized_video) and "_bf" not in os.path.splitext(normalized_video)[0]:
-                try:
-                    converted = make_browser_friendly(normalized_video)
-                    exit_video_filename = os.path.basename(converted)
-                except Exception as exc:
-                    print(f"Failed to convert {ticket.exit_video_path}: {exc}")
-            existing_token_ticket.exit_video_path = exit_video_filename
-
-        db.commit()
-        db.refresh(existing_token_ticket)
-        return success_response(
-            "Duplicate token detected → Ticket updated",
-            existing_token_ticket.id,
-        )
-
     ref_time = ticket.entry_time or ticket.exit_time or datetime.now()
     day_start = ref_time.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
@@ -565,13 +523,12 @@ async def upload_video(file: UploadFile = File(...)):
     file_path = os.path.join(UPLOAD_FOLDER, unique_filename)
 
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    with open(file_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    content = await file.read()
+    await _write_bytes(file_path, content)
     response_name = unique_filename
     if is_video_file(file_path) and "_bf" not in os.path.splitext(file_path)[0]:
         try:
-            converted = make_browser_friendly(file_path)
+            converted = await _convert_video(file_path)
             response_name = os.path.basename(converted)
         except Exception as exc:
             print(f"Failed to convert {file_path}: {exc}")
