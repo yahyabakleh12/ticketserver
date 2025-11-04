@@ -1,4 +1,12 @@
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Depends,
+    UploadFile,
+    File,
+    BackgroundTasks,
+    Request,
+)
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
@@ -491,12 +499,35 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
     print('Ticket created successfully')
     return success_response("Ticket created successfully", db_ticket.id)
 
+def _is_absolute_url(value: Optional[str]) -> bool:
+    if not value:
+        return False
+    lowered = value.lower()
+    return lowered.startswith("http://") or lowered.startswith("https://")
+
+
+def _image_endpoint_url(request: Request, endpoint: str, ticket_id: int) -> str:
+    base_url = str(request.base_url).rstrip("/")
+    return f"{base_url}/{endpoint}/{ticket_id}"
+
+
 @app.get("/ticket/{id}", response_model=TicketOut)
-def view_ticket(id: int, db: Session = Depends(get_db)):
+def view_ticket(id: int, request: Request, db: Session = Depends(get_db)):
     ticket = db.query(Ticket).filter(Ticket.id == id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return ticket
+
+    ticket_data = TicketOut.model_validate(ticket)
+
+    if ticket_data.car_pic and not _is_absolute_url(ticket_data.car_pic):
+        ticket_data.car_pic = _image_endpoint_url(request, "image-car", ticket.id)
+
+    if ticket_data.entry_pic_base64 and not _is_absolute_url(
+        ticket_data.entry_pic_base64
+    ):
+        ticket_data.entry_pic_base64 = _image_endpoint_url(request, "image-in", ticket.id)
+
+    return ticket_data
 
 @app.get("/ticket/{id}/next", response_model=TicketOut)
 def get_next_ticket(id: int, db: Session = Depends(get_db)):
