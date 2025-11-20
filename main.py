@@ -262,7 +262,7 @@ def submit_previous_day_tickets() -> None:
     ]
 
     for tid in ids_to_submit:
-        submit_ticket(tid, SessionLocal())
+        submit_ticket(tid)
 
 
 async def schedule_midnight_submission() -> None:
@@ -570,7 +570,12 @@ async def upload_video(file: UploadFile = File(...)):
 @app.post("/submit/{ticket_id}")
 def submit_t(ticket_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Schedule ticket submission in the background."""
-    background_tasks.add_task(submit_ticket, ticket_id, db)
+
+    exists = db.query(Ticket.id).filter(Ticket.id == ticket_id).first()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    background_tasks.add_task(submit_ticket, ticket_id)
     return success_response("Submission scheduled", ticket_id)
 
 
@@ -591,7 +596,7 @@ def submit_short_tickets(db: Session = Depends(get_db)):
             ids_to_submit.append(t.id)
 
     for tid in ids_to_submit:
-        submit_ticket(tid, SessionLocal())
+        submit_ticket(tid)
 
     return success_response(
         "Submitted tickets under one hour",
@@ -599,8 +604,13 @@ def submit_short_tickets(db: Session = Depends(get_db)):
         submitted=len(ids_to_submit),
     )
 
-def submit_ticket(ticket_id: int, db: Session):
+def submit_ticket(ticket_id: int, db: Session | None = None):
     """Submit a ticket by calling park-in then park-out APIs."""
+
+    owns_session = db is None
+    if db is None:
+        db = SessionLocal()
+
     try:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
@@ -608,11 +618,11 @@ def submit_ticket(ticket_id: int, db: Session):
 
         car_bs64 = ""
         in_bs64 = ""
-        normalized_path_car=normalize_path_car(ticket.car_pic)
+        normalized_path_car = normalize_path_car(ticket.car_pic)
         with open(normalized_path_car, "rb") as f:
             car_bytes = f.read()
         car_bs64 = base64.b64encode(car_bytes).decode("utf-8")
-        normalized_path=normalize_path(ticket.entry_pic_base64)
+        normalized_path = normalize_path(ticket.entry_pic_base64)
         with open(normalized_path, "rb") as d:
             in_bytes = d.read()
         in_bs64 = base64.b64encode(in_bytes).decode("utf-8")
@@ -635,7 +645,8 @@ def submit_ticket(ticket_id: int, db: Session):
         if isinstance(parkin_resp, dict):
             trip_id = parkin_resp.get("trip_id") or parkin_resp.get("data", {}).get("trip_id")
         if not trip_id:
-            raise HTTPException(status_code=400, detail="Failed to obtain trip id")
+            print(f"Failed to obtain trip id for ticket {ticket_id}")
+            return {"status": "error", "detail": "Failed to obtain trip id"}
 
         ticket.trip_p_id = trip_id
         ticket.status = "submitted"
@@ -677,8 +688,15 @@ def submit_ticket(ticket_id: int, db: Session):
             park_in=parkin_resp,
             park_out=parkout_resp,
         )
+    except HTTPException as exc:
+        print(f"Failed to submit ticket {ticket_id}: {exc.detail}")
+        return {"status": "error", "detail": exc.detail}
+    except Exception as exc:
+        print(f"Unexpected error submitting ticket {ticket_id}: {exc}")
+        return {"status": "error", "detail": str(exc)}
     finally:
-        db.close()
+        if owns_session:
+            db.close()
 # @app.get("/fix")
 # def fix_db(db: Session = Depends(get_db)):
 #     tickets = db.query(Ticket).filter(Ticket.token == 'buOs11IDXwseQCb3bLvAxNv0Gx4HLC21Um').all()
